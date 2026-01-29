@@ -4,6 +4,8 @@ const PerfumeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     brand: { type: String, required: true },
+    category: { type: String, required: true },
+    video_url: { type: String },
     description: { type: String },
     image_url: { type: String },
     price: { type: Number },

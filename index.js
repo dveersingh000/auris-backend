@@ -9,15 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// connect database
 connectDB();
 
-// health check (only for testing)
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Routes
 app.use('/api', require('./src/routes/meta.routes'));
 app.use('/api', require('./src/routes/perfume.routes'));
 app.use('/api', require('./src/routes/recommendation.routes'));

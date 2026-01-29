@@ -4,43 +4,65 @@ exports.getRecommendations = async (req, res) => {
   try {
     const { moodId, personaId, noteIds } = req.body;
 
-    if (!moodId || !personaId || !Array.isArray(noteIds) || !noteIds.length) {
-      return res.status(400).json({ message: 'Invalid recommendation input' });
+    if (!moodId || !personaId) {
+      return res.status(400).json({ message: 'Mood ID and Persona ID are required' });
     }
-
-    const perfumes = await Perfume.find({
+    
+    const safeNoteIds = Array.isArray(noteIds) ? noteIds : [];
+    const candidates = await Perfume.find({
       $or: [
-        { moods: { $elemMatch: { moodId, strength: { $gte: 6 } } } },
-        { personas: { $elemMatch: { personaId, match_score: { $gte: 7 } } } },
-        {
-          notes: {
-            $elemMatch: {
-              noteId: { $in: noteIds },
-              prominence: { $gte: 6 },
-            },
-          },
-        },
+        { 'moods.moodId': moodId },
+        { 'personas.personaId': personaId },
+        { 'notes.noteId': { $in: safeNoteIds } },
       ],
+    })
+    .populate('moods.moodId')
+    .populate('personas.personaId')
+    .populate('notes.noteId');
+
+    const scoredCandidates = candidates.map((p) => {
+      let totalScore = 0;
+      let matchReasons = [];
+
+      const moodMatch = p.moods.find((m) => m.moodId._id.equals(moodId));
+      if (moodMatch) {
+        totalScore += (moodMatch.strength || 5) * 2; 
+        matchReasons.push('Mood Match');
+      }
+
+      const personaMatch = p.personas.find((per) => per.personaId._id.equals(personaId));
+      if (personaMatch) {
+        totalScore += (personaMatch.match_score || 5) * 1.5;
+        matchReasons.push('Persona Match');
+      }
+
+      const matchedNotes = p.notes.filter((n) => safeNoteIds.includes(n.noteId._id.toString()));
+      if (matchedNotes.length > 0) {
+        const notesScore = matchedNotes.reduce((acc, curr) => acc + (curr.prominence || 5), 0);
+        totalScore += notesScore;
+        matchReasons.push(`${matchedNotes.length} Note(s)`);
+      }
+
+      return {
+        ...p.toObject(),
+        relevance_score: totalScore,
+        match_reasons: matchReasons
+      };
     });
 
-    const ranked = perfumes
-      .map((p) => {
-        let score = 0;
+    const ranked = scoredCandidates
+      .sort((a, b) => b.relevance_score - a.relevance_score)
+      .slice(0, 6);
 
-        if (p.moods.some((m) => m.moodId.equals(moodId))) score++;
-        if (p.personas.some((p) => p.personaId.equals(personaId))) score++;
-        if (p.notes.some((n) => noteIds.includes(n.noteId.toString())))
-          score++;
-
-        return { perfume: p, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
-      .map((r) => r.perfume);
+    if (ranked.length === 0) {
+       const fallback = await Perfume.find().limit(4);
+       return res.json(fallback);
+    }
 
     res.json(ranked);
+
   } catch (err) {
-    console.error('Recommendation error:', err);
+    console.error('Recommendation Engine Error:', err);
     res.status(500).json({ message: 'Failed to generate recommendations' });
   }
 };
